@@ -8,8 +8,15 @@ const LIMIT_5H = 12
 const LIMIT_WEEKLY = 30
 const LIMIT_MONTHLY = 60
 
-const DB_PATH = process.env.HOME + "/.local/share/opencode/opencode.db"
-const REFRESH_MS = 60_000
+const KV_LOG = "go-usage:log2"
+const KV_EXP = "go-usage:exp"
+
+interface Entry {
+  m: string  // model
+  c: number  // cost (accumulative for this session)
+  t: number  // timestamp
+  s: string  // sessionID
+}
 
 function $c(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return ""
@@ -26,10 +33,19 @@ function barStr(ratio: number, w: number): string {
   return "█".repeat(Math.max(0, filled)) + "░".repeat(Math.max(0, w - filled))
 }
 
-interface CostRow {
-  h5: number
-  wk: number
-  mo: number
+function sumWindow(entries: Entry[], windowMs: number): number {
+  const cut = Date.now() - windowMs
+  // Group by sessionID+model, take max cost per group, sum within window
+  const maxPerKey = new Map<string, number>()
+  for (const e of entries) {
+    if (e.t < cut) continue
+    const key = `${e.s}::${e.m}`
+    const prev = maxPerKey.get(key) ?? 0
+    if (e.c > prev) maxPerKey.set(key, e.c)
+  }
+  let total = 0
+  for (const v of maxPerKey.values()) total += v
+  return total
 }
 
 let init = false
@@ -57,56 +73,73 @@ const tui: TuiPlugin = async (api) => {
     createRoot((dis) => {
       sd = dis
 
-      // Try to set up SQLite via child_process sqlite3 (more portable)
-      // We use a singleton pattern: run sqlite3 occasionally, cache results
-      let cached: CostRow | null = null
-      let lastFetch = 0
+      // Restore from KV + track live
+      const saved = () => api.kv?.get?.<Entry[]>(KV_LOG) ?? []
+      const [entries, setEntries] = createSignal<Entry[]>(saved())
 
-      function fetchCosts(): CostRow {
-        const now = Date.now()
-        if (cached && now - lastFetch < 5000) return cached
+      // Compute windows reactively
+      const windows = () => ({
+        h5: sumWindow(entries(), 5 * 3600 * 1000),
+        wk: sumWindow(entries(), 7 * 86400 * 1000),
+        mo: sumWindow(entries(), 30 * 86400 * 1000),
+      })
 
-        try {
-          // Use child_process to run sqlite3 — works in any runtime
-          // @ts-ignore
-          const { execSync } = require("child_process") as any
-          const sql = `SELECT COALESCE(SUM(CASE WHEN time_created >= CAST(strftime('%s','now') AS INTEGER)*1000 - ${5*3600*1000} THEN cost ELSE 0 END), 0) || '|' || COALESCE(SUM(CASE WHEN time_created >= CAST(strftime('%s','now') AS INTEGER)*1000 - ${7*86400*1000} THEN cost ELSE 0 END), 0) || '|' || COALESCE(SUM(CASE WHEN time_created >= CAST(strftime('%s','now') AS INTEGER)*1000 - ${30*86400*1000} THEN cost ELSE 0 END), 0) FROM session WHERE cost > 0`
-          const out = execSync(`sqlite3 "${DB_PATH}" "${sql}"`, {
-            encoding: "utf-8",
-            timeout: 3000,
-            windowsHide: true,
-          }).trim()
-          const parts = out.split("|")
-          cached = {
-            h5: parseFloat(parts[0] ?? "0"),
-            wk: parseFloat(parts[1] ?? "0"),
-            mo: parseFloat(parts[2] ?? "0"),
-          }
-          lastFetch = now
-          return cached
-        } catch {
-          return { h5: 0, wk: 0, mo: 0 }
-        }
+      // Debounced KV save
+      let st: ReturnType<typeof setTimeout> | undefined
+      const scheduleSave = () => {
+        if (st) clearTimeout(st)
+        st = setTimeout(() => {
+          const data = entries()
+          if (data.length > 0) api.kv?.set?.(KV_LOG, data)
+        }, 2000)
+      }
+      const flushSave = () => {
+        if (st) { clearTimeout(st); st = undefined }
+        const data = entries()
+        if (data.length > 0) api.kv?.set?.(KV_LOG, data)
       }
 
-      const [data, setData] = createSignal<CostRow>(fetchCosts())
+      // Listen for session updates
+      unsub = api.event?.on?.("session.updated", (ev) => {
+        try {
+          const info = ev?.properties?.info
+          const sid = ev?.properties?.sessionID
+          if (!info || !sid) return
+          const cost = typeof info.cost === "number" ? info.cost : 0
+          if (cost <= 0) return
+          const model = info.model?.id ?? "?"
 
-      // Refresh periodically
-      timerId = setInterval(() => setData(fetchCosts()), REFRESH_MS)
-
-      // Refresh on session activity (debounced via 5s cache)
-      unsub = api.event?.on?.("session.updated", () => {
-        setData(fetchCosts())
+          setEntries((prev) => {
+            const key = `${sid}::${model}`
+            const idx = prev.findIndex((e) => `${e.s}::${e.m}` === key)
+            let next: Entry[]
+            if (idx >= 0) {
+              // Event carries accumulative cost — keep highest seen
+              if (cost <= prev[idx].c) return prev
+              next = prev.slice()
+              next[idx] = { m: model, c: cost, t: Date.now(), s: sid }
+            } else {
+              next = [...prev, { m: model, c: cost, t: Date.now(), s: sid }]
+            }
+            // Prune entries older than 31 days
+            const cut = Date.now() - 31 * 86400 * 1000
+            return next.filter((e) => e.t >= cut)
+          })
+          scheduleSave()
+        } catch { /* silent */ }
       })
+
+      // Periodic KV flush
+      timerId = setInterval(flushSave, 30_000)
 
       api.slots?.register?.({
         order: 210,
         slots: {
           sidebar_content(ctx, _props) {
-            const d = data()
+            const w = windows()
             const fg = ctx.theme.current.text
             const mu = ctx.theme.current.textMuted
-            const e = api.kv?.get?.<boolean>("go-usage:exp", true) !== false
+            const e = api.kv?.get?.<boolean>(KV_EXP, true) !== false
 
             const Row = (used: number, limit: number, label: string) => {
               const r = limit > 0 ? used / limit : 0
@@ -123,7 +156,7 @@ const tui: TuiPlugin = async (api) => {
               )
             }
 
-            const total = d.h5 + d.wk + d.mo
+            const total = w.h5 + w.wk + w.mo
             const totalLim = LIMIT_5H + LIMIT_WEEKLY + LIMIT_MONTHLY
 
             return (
@@ -131,16 +164,16 @@ const tui: TuiPlugin = async (api) => {
                 <box
                   flexDirection="row"
                   justifyContent="space-between"
-                  onMouseDown={() => api.kv?.set?.("go-usage:exp", !e)}
+                  onMouseDown={() => api.kv?.set?.(KV_EXP, !e)}
                 >
                   <text fg={fg}>{e ? "▼" : "▶"} Go Est. Stats</text>
                   <text fg={mu}>{$c(total)}</text>
                 </box>
                 {e && (
                   <box flexDirection="column">
-                    {Row(d.h5, LIMIT_5H, "5h")}
-                    {Row(d.wk, LIMIT_WEEKLY, "Week")}
-                    {Row(d.mo, LIMIT_MONTHLY, "Month")}
+                    {Row(w.h5, LIMIT_5H, "5h")}
+                    {Row(w.wk, LIMIT_WEEKLY, "Week")}
+                    {Row(w.mo, LIMIT_MONTHLY, "Month")}
                     <text fg={mu}>
                       Total: {$c(total)} / ${totalLim} ({pct(total, totalLim)})
                     </text>
