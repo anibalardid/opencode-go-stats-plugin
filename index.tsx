@@ -8,14 +8,14 @@ const LIMIT_5H = 12
 const LIMIT_WEEKLY = 30
 const LIMIT_MONTHLY = 60
 
-const KV_LOG = "go-usage:log2"
+const KV_LOG = "go-usage:log3"
 const KV_EXP = "go-usage:exp"
 
 interface Entry {
-  m: string  // model
-  c: number  // cost (accumulative for this session)
-  t: number  // timestamp
-  s: string  // sessionID
+  m: string
+  c: number
+  t: number
+  s: string
 }
 
 function $c(n: number): string {
@@ -35,17 +35,51 @@ function barStr(ratio: number, w: number): string {
 
 function sumWindow(entries: Entry[], windowMs: number): number {
   const cut = Date.now() - windowMs
-  // Group by sessionID+model, take max cost per group, sum within window
   const maxPerKey = new Map<string, number>()
   for (const e of entries) {
     if (e.t < cut) continue
     const key = `${e.s}::${e.m}`
-    const prev = maxPerKey.get(key) ?? 0
-    if (e.c > prev) maxPerKey.set(key, e.c)
+    maxPerKey.set(key, Math.max(maxPerKey.get(key) ?? 0, e.c))
   }
   let total = 0
   for (const v of maxPerKey.values()) total += v
   return total
+}
+
+// ── Try to seed from SQLite using Bun's built-in module ────────────────────
+function trySeedFromDB(): Entry[] | null {
+  try {
+    // @ts-expect-error - Bun.sqlite is a built-in
+    const db = new Bun.sqlite(
+      process.env.HOME + "/.local/share/opencode/opencode.db",
+      { readonly: true },
+    )
+    const rows = db.query(`
+      SELECT
+        id as sid,
+        time_created as ts,
+        cost,
+        model
+      FROM session
+      WHERE cost > 0 AND time_created >= CAST(strftime('%s','now') AS INTEGER)*1000 - 31*86400*1000
+      ORDER BY time_created ASC
+    `).all() as Array<{ sid: string; ts: number; cost: number; model: string }>
+
+    db.close()
+
+    if (!rows || rows.length === 0) return null
+
+    return rows.map((r) => {
+      let modelId = "?"
+      try {
+        const parsed = JSON.parse(r.model)
+        modelId = parsed.id ?? "?"
+      } catch { modelId = r.model ?? "?" }
+      return { m: modelId, c: r.cost, t: r.ts, s: r.sid }
+    })
+  } catch {
+    return null
+  }
 }
 
 let init = false
@@ -73,18 +107,25 @@ const tui: TuiPlugin = async (api) => {
     createRoot((dis) => {
       sd = dis
 
-      // Restore from KV + track live
-      const saved = () => api.kv?.get?.<Entry[]>(KV_LOG) ?? []
-      const [entries, setEntries] = createSignal<Entry[]>(saved())
+      // Seed: try Bun.sqlite, fall back to KV, fall back to empty
+      let initial: Entry[] = []
+      const seeded = trySeedFromDB()
+      if (seeded) {
+        initial = seeded
+        // Save seed to KV for future loads
+        api.kv?.set?.(KV_LOG, seeded)
+      } else {
+        initial = api.kv?.get?.<Entry[]>(KV_LOG) ?? []
+      }
 
-      // Compute windows reactively
+      const [entries, setEntries] = createSignal<Entry[]>(initial)
+
       const windows = () => ({
         h5: sumWindow(entries(), 5 * 3600 * 1000),
         wk: sumWindow(entries(), 7 * 86400 * 1000),
         mo: sumWindow(entries(), 30 * 86400 * 1000),
       })
 
-      // Debounced KV save
       let st: ReturnType<typeof setTimeout> | undefined
       const scheduleSave = () => {
         if (st) clearTimeout(st)
@@ -99,7 +140,6 @@ const tui: TuiPlugin = async (api) => {
         if (data.length > 0) api.kv?.set?.(KV_LOG, data)
       }
 
-      // Listen for session updates
       unsub = api.event?.on?.("session.updated", (ev) => {
         try {
           const info = ev?.properties?.info
@@ -114,14 +154,12 @@ const tui: TuiPlugin = async (api) => {
             const idx = prev.findIndex((e) => `${e.s}::${e.m}` === key)
             let next: Entry[]
             if (idx >= 0) {
-              // Event carries accumulative cost — keep highest seen
               if (cost <= prev[idx].c) return prev
               next = prev.slice()
               next[idx] = { m: model, c: cost, t: Date.now(), s: sid }
             } else {
               next = [...prev, { m: model, c: cost, t: Date.now(), s: sid }]
             }
-            // Prune entries older than 31 days
             const cut = Date.now() - 31 * 86400 * 1000
             return next.filter((e) => e.t >= cut)
           })
@@ -129,7 +167,6 @@ const tui: TuiPlugin = async (api) => {
         } catch { /* silent */ }
       })
 
-      // Periodic KV flush
       timerId = setInterval(flushSave, 30_000)
 
       api.slots?.register?.({

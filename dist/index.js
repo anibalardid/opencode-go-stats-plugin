@@ -4,7 +4,7 @@ import { jsx, jsxs } from "@opentui/solid/jsx-runtime";
 var LIMIT_5H = 12;
 var LIMIT_WEEKLY = 30;
 var LIMIT_MONTHLY = 60;
-var KV_LOG = "go-usage:log2";
+var KV_LOG = "go-usage:log3";
 var KV_EXP = "go-usage:exp";
 function $c(n) {
   if (!Number.isFinite(n) || n <= 0) return "";
@@ -24,12 +24,43 @@ function sumWindow(entries, windowMs) {
   for (const e of entries) {
     if (e.t < cut) continue;
     const key = `${e.s}::${e.m}`;
-    const prev = maxPerKey.get(key) ?? 0;
-    if (e.c > prev) maxPerKey.set(key, e.c);
+    maxPerKey.set(key, Math.max(maxPerKey.get(key) ?? 0, e.c));
   }
   let total = 0;
   for (const v of maxPerKey.values()) total += v;
   return total;
+}
+function trySeedFromDB() {
+  try {
+    const db = new Bun.sqlite(
+      process.env.HOME + "/.local/share/opencode/opencode.db",
+      { readonly: true }
+    );
+    const rows = db.query(`
+      SELECT
+        id as sid,
+        time_created as ts,
+        cost,
+        model
+      FROM session
+      WHERE cost > 0 AND time_created >= CAST(strftime('%s','now') AS INTEGER)*1000 - 31*86400*1000
+      ORDER BY time_created ASC
+    `).all();
+    db.close();
+    if (!rows || rows.length === 0) return null;
+    return rows.map((r) => {
+      let modelId = "?";
+      try {
+        const parsed = JSON.parse(r.model);
+        modelId = parsed.id ?? "?";
+      } catch {
+        modelId = r.model ?? "?";
+      }
+      return { m: modelId, c: r.cost, t: r.ts, s: r.sid };
+    });
+  } catch {
+    return null;
+  }
 }
 var init = false;
 var tui = async (api) => {
@@ -56,8 +87,15 @@ var tui = async (api) => {
       api.lifecycle.signal.addEventListener("abort", cl, { once: true });
     createRoot((dis) => {
       sd = dis;
-      const saved = () => api.kv?.get?.(KV_LOG) ?? [];
-      const [entries, setEntries] = createSignal(saved());
+      let initial = [];
+      const seeded = trySeedFromDB();
+      if (seeded) {
+        initial = seeded;
+        api.kv?.set?.(KV_LOG, seeded);
+      } else {
+        initial = api.kv?.get?.(KV_LOG) ?? [];
+      }
+      const [entries, setEntries] = createSignal(initial);
       const windows = () => ({
         h5: sumWindow(entries(), 5 * 3600 * 1e3),
         wk: sumWindow(entries(), 7 * 86400 * 1e3),
