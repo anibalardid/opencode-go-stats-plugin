@@ -111,8 +111,8 @@ var tui = async (api) => {
                 ] })
               ] });
             };
-            const total = d.h5 + d.wk + d.mo;
-            const totalLim = LIMIT_5H + LIMIT_WEEKLY + LIMIT_MONTHLY;
+            const total = d.mo;
+            const totalLim = LIMIT_MONTHLY;
             return /* @__PURE__ */ jsxs("box", { flexDirection: "column", children: [
               /* @__PURE__ */ jsxs(
                 "box",

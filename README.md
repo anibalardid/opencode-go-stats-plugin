@@ -23,7 +23,7 @@ The plugin reads cost data directly from OpenCode's local SQLite database (`~/.l
 | Weekly | $30 |
 | Monthly | $60 |
 
-It also listens to `session.updated` events for real-time updates and refreshes the DB query every 60 seconds.
+It also listens to `session.updated` events for real-time updates and refreshes the DB query every 30 seconds.
 
 > **Note**: These are **estimates** based on local data. The opencode.ai console shows authoritative server-side usage with real-time counters. The month figure tends to closely match (~2% diff); shorter windows may diverge more.
 
