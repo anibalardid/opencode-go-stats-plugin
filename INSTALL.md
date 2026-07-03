@@ -15,7 +15,7 @@ npm run build
 opencode plugin -g "$(pwd)"
 ```
 
-Restart OpenCode. You'll see a **Go Est. Stats** section in the sidebar.
+Restart OpenCode. You'll see an **OpenCode Go** section in the sidebar.
 
 ## How to update
 
@@ -41,3 +41,9 @@ The plugin reads `~/.local/share/opencode/opencode.db` (SQLite) which requires:
 - macOS / Linux
 - `sqlite3` CLI in PATH (comes pre-installed on macOS)
 - OpenCode must have been used at least once (so the DB has session data)
+
+---
+
+## 🇪🇸 Español
+
+Lee las instrucciones en español aquí: [INSTALAR.md](INSTALAR.md)

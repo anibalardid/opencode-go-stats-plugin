@@ -3,7 +3,7 @@
 Sidebar plugin for OpenCode that estimates your **Go plan usage** — tracks cost against the $12 (5h), $30 (weekly), and $60 (monthly) limits.
 
 ```
-▼ Go Est. Stats               $17.89
+▼ OpenCode Go               $17.89
   5h   $2.90 / $12
   ██░░░░░░ 24%
   Week $10.06 / $30
@@ -12,6 +12,8 @@ Sidebar plugin for OpenCode that estimates your **Go plan usage** — tracks cos
   ███░░░░░ 30%
   Total: $17.89 / $102 (30%)
 ```
+
+> 🔴 = 100% used · 🟡 = 90–99% used
 
 ## How it works
 
@@ -26,6 +28,8 @@ The plugin reads cost data directly from OpenCode's local SQLite database (`~/.l
 It also listens to `session.updated` events for real-time updates and refreshes the DB query every 30 seconds.
 
 > **Note**: These are **estimates** based on local data. The opencode.ai console shows authoritative server-side usage with real-time counters. The month figure tends to closely match (~2% diff); shorter windows may diverge more.
+
+For a more accurate server-side view, check the companion plugin [`opencode-go-dash`](https://github.com/anibalardid/opencode-go-dash) which scrapes the actual OpenCode dashboard.
 
 ## Limits reference (from [opencode.ai/docs/go](https://opencode.ai/docs/go))
 
@@ -54,3 +58,9 @@ It also listens to `session.updated` events for real-time updates and refreshes 
 ## License
 
 MIT
+
+---
+
+## 🇪🇸 Español
+
+Lee la documentación en español aquí: [LEEME.md](LEEME.md) · [INSTALAR.md](INSTALAR.md)
