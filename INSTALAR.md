@@ -17,6 +17,35 @@ opencode plugin -g "$(pwd)"
 
 Reiniciá OpenCode. Vas a ver una sección **OpenCode Go** en la barra lateral.
 
+## Autenticación
+
+El plugin obtiene tu uso de Go desde el dashboard de OpenCode. Necesitás tu cookie de autenticación y el ID del workspace.
+
+### Opción A: Variables de entorno
+
+```bash
+export OPENCODE_GO_AUTH_COOKIE="valor-de-tu-cookie-auth"
+export OPENCODE_GO_WORKSPACE_ID="tu-workspace-id"
+```
+
+### Opción B: Archivo de configuración
+
+Creá `~/.config/opencode/opencode-quota/opencode-go.json`:
+
+```json
+{
+  "authCookie": "valor-de-tu-cookie-auth",
+  "workspaceId": "tu-workspace-id"
+}
+```
+
+### Cómo obtener tus credenciales
+
+1. Abrí [opencode.ai](https://opencode.ai) en tu navegador e iniciá sesión
+2. Abrí DevTools → Application → Cookies → opencode.ai
+3. Copiá el valor de la cookie `auth`
+4. Tu workspace ID es el slug en la URL: `https://opencode.ai/workspace/<workspace-id>/go`
+
 ## Cómo actualizar
 
 ```bash
@@ -34,13 +63,6 @@ opencode plugin -g "$(pwd)"
 # Luego borrá la carpeta
 rm -rf opencode-go-stats-plugin
 ```
-
-## Requisitos
-
-El plugin lee `~/.local/share/opencode/opencode.db` (SQLite), lo que requiere:
-- macOS / Linux
-- `sqlite3` CLI en PATH (viene preinstalado en macOS)
-- OpenCode debe haberse usado al menos una vez (para que la DB tenga datos de sesión)
 
 ---
 

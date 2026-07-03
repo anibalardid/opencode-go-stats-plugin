@@ -17,19 +17,11 @@ Sidebar plugin for OpenCode that estimates your **Go plan usage** — tracks cos
 
 ## How it works
 
-The plugin reads cost data directly from OpenCode's local SQLite database (`~/.local/share/opencode/opencode.db`) and calculates rolling-window costs against the published Go plan limits:
+The plugin scrapes your Go usage directly from the OpenCode dashboard using your auth cookie. It parses the usage windows (5h, weekly, monthly) and displays them in the sidebar.
 
-| Window | Limit (USD) |
-|--------|------------|
-| 5 hours | $12 |
-| Weekly | $30 |
-| Monthly | $60 |
+It listens to `session.updated` events for real-time updates and refreshes every 60 seconds.
 
-It also listens to `session.updated` events for real-time updates and refreshes the DB query every 30 seconds.
-
-> **Note**: These are **estimates** based on local data. The opencode.ai console shows authoritative server-side usage with real-time counters. The month figure tends to closely match (~2% diff); shorter windows may diverge more.
-
-For a more accurate server-side view, check the companion plugin [`opencode-go-dash`](https://github.com/anibalardid/opencode-go-dash) which scrapes the actual OpenCode dashboard.
+> **Note**: These are **server-side** numbers from the opencode.ai dashboard — they match what you see on the web.
 
 ## Limits reference (from [opencode.ai/docs/go](https://opencode.ai/docs/go))
 
@@ -54,6 +46,10 @@ For a more accurate server-side view, check the companion plugin [`opencode-go-d
 | `tsup.config.ts` | Build config |
 | `tsconfig.json` | TypeScript config |
 | `dist/` | Built output (loaded by OpenCode) |
+
+## Install
+
+[INSTALL.md](INSTALL.md)
 
 ## License
 
