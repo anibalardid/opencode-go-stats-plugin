@@ -7,6 +7,7 @@ var USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101
 var SCRAPE_TIMEOUT_MS = 1e4;
 var REFRESH_INTERVAL_MS = 6e4;
 var KV_EXP = "go-usage:exp";
+var RETRY_DELAYS = [5e3, 15e3, 3e4];
 async function resolveConfig() {
   const envAuth = process.env.OPENCODE_GO_AUTH_COOKIE?.trim();
   const envWs = process.env.OPENCODE_GO_WORKSPACE_ID?.trim();
@@ -112,6 +113,7 @@ var tui = async (api) => {
   let unsub;
   let sd;
   let timerId;
+  let retryTimer;
   const cl = () => {
     try {
       unsub?.();
@@ -122,6 +124,7 @@ var tui = async (api) => {
     } catch {
     }
     if (timerId) clearInterval(timerId);
+    if (retryTimer) clearTimeout(retryTimer);
     init = false;
   };
   try {
@@ -143,9 +146,20 @@ var tui = async (api) => {
         const scraped = await scrapeUsage(resolved.result.authCookie, resolved.result.workspaceId);
         if (scraped.error) {
           setState({ kind: "error", msg: scraped.error });
+          scheduleRetry(0);
           return;
         }
         setState({ kind: "data", d: scraped.data });
+      }
+      function scheduleRetry(attempt) {
+        if (retryTimer) clearTimeout(retryTimer);
+        if (attempt >= RETRY_DELAYS.length) return;
+        retryTimer = setTimeout(() => {
+          refresh().then(() => {
+            if (timerId) clearInterval(timerId);
+            timerId = setInterval(refresh, REFRESH_INTERVAL_MS);
+          });
+        }, RETRY_DELAYS[attempt]);
       }
       refresh();
       timerId = setInterval(refresh, REFRESH_INTERVAL_MS);

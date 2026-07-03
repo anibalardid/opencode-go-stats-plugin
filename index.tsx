@@ -12,6 +12,8 @@ const REFRESH_INTERVAL_MS = 60_000
 
 const KV_EXP = "go-usage:exp"
 
+const RETRY_DELAYS = [5_000, 15_000, 30_000] as const
+
 // ── Cookie resolution ────────────────────────────────────────────────────────
 interface GoConfig {
   authCookie: string
@@ -170,11 +172,13 @@ const tui: TuiPlugin = async (api) => {
   let unsub: (() => void) | undefined
   let sd: (() => void) | undefined
   let timerId: ReturnType<typeof setInterval> | undefined
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
 
   const cl = () => {
     try { unsub?.() } catch {}
     try { sd?.() } catch {}
     if (timerId) clearInterval(timerId)
+    if (retryTimer) clearTimeout(retryTimer)
     init = false
   }
 
@@ -207,10 +211,23 @@ const tui: TuiPlugin = async (api) => {
         const scraped = await scrapeUsage(resolved.result.authCookie, resolved.result.workspaceId)
         if (scraped.error) {
           setState({ kind: "error", msg: scraped.error })
+          scheduleRetry(0)
           return
         }
 
         setState({ kind: "data", d: scraped.data! })
+      }
+
+      function scheduleRetry(attempt: number) {
+        if (retryTimer) clearTimeout(retryTimer)
+        if (attempt >= RETRY_DELAYS.length) return
+        retryTimer = setTimeout(() => {
+          refresh().then(() => {
+            // On success after retry, resume normal interval
+            if (timerId) clearInterval(timerId)
+            timerId = setInterval(refresh, REFRESH_INTERVAL_MS)
+          })
+        }, RETRY_DELAYS[attempt])
       }
 
       refresh()
