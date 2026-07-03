@@ -42,9 +42,15 @@ Creá `~/.config/opencode/opencode-quota/opencode-go.json`:
 ### Cómo obtener tus credenciales
 
 1. Abrí [opencode.ai](https://opencode.ai) en tu navegador e iniciá sesión
-2. Abrí DevTools → Application → Cookies → opencode.ai
-3. Copiá el valor de la cookie `auth`
-4. Tu workspace ID es el slug en la URL: `https://opencode.ai/workspace/<workspace-id>/go`
+2. Andá a tu dashboard Go: `https://opencode.ai/workspace/<tu-workspace>/go`
+3. Abrí DevTools:
+   - **Chrome/Edge**: `F12` o clic derecho → Inspeccionar → pestaña **Application** → Cookies → `opencode.ai`
+   - **Firefox**: `F12` o clic derecho → Inspeccionar → pestaña **Storage** → Cookies → `opencode.ai`
+   - **Safari**: `⌘⌥I` → pestaña **Storage** → Cookies → `opencode.ai`
+4. Buscá la cookie llamada `auth` y copiá su **Valor** (un string alfanumérico largo)
+5. Tu **workspace ID** es el slug en la URL — ej: si la URL es `https://opencode.ai/workspace/acme-corp/go`, el workspace ID es `acme-corp`
+
+> **Nota**: La cookie `auth` expira después de un tiempo. Si el plugin deja de funcionar, volvé a copiarla desde DevTools.
 
 ## Cómo actualizar
 
